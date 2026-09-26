@@ -1,0 +1,34 @@
+plugins {
+    id 'multiloader-common'
+}
+
+sourceSets {
+    main {
+        java.srcDir project(':common').file('src/main/java')
+        resources.srcDir project(':common').file('src/main/resources')
+    }
+}
+
+// Fabric uses Loom's splitEnvironmentSourceSets() and wires common client code into
+// sourceSets.client from fabric/build.gradle. NeoForge does not split client
+// classes by default, so it must compile/package the common client mixins from main.
+if (project.name != 'fabric') {
+    sourceSets {
+        main {
+            java.srcDir project(':common').file('src/client/java')
+            resources.srcDir project(':common').file('src/client/resources')
+        }
+    }
+}
+
+dependencies {
+    compileOnly(project(':common')) {
+        capabilities {
+            requireCapability "$group:$mod_id"
+        }
+        def loaderAttribute = Attribute.of('io.github.mcgradleconventions.loader', String)
+        attributes {
+            attribute(loaderAttribute, 'common')
+        }
+    }
+}

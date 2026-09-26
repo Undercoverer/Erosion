@@ -1,0 +1,77 @@
+plugins {
+    // see https://fabricmc.net/develop/ for new versions
+    id 'fabric-loom' version '1.13-SNAPSHOT' apply false
+    // see https://projects.neoforged.net/neoforged/moddevgradle for new versions
+    id 'net.neoforged.moddev' version '2.0.123' apply false
+    id 'org.spongepowered.mixin' version '0.7-SNAPSHOT' apply false
+}
+
+ext {
+    erosionLoaderProjects = ['fabric', 'neoforge']
+    erosionLoaderDisplayNames = [
+            fabric  : 'Fabric',
+            neoforge: 'NeoForge'
+    ]
+}
+
+def erosionJavaVersion = (findProperty('java_version') ?: '21') as Integer
+
+def erosionBuildTaskGroup = 'erosion filter'
+
+tasks.register('collectReleaseJars', Copy) {
+    group = erosionBuildTaskGroup
+    description = 'Builds the release jars and copies the distributable jars to build/release/<loader>.'
+    dependsOn rootProject.ext.erosionLoaderProjects.collect { String loaderName -> ":${loaderName}:build" }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    into layout.buildDirectory.dir('release')
+
+    rootProject.ext.erosionLoaderProjects.each { String loaderName ->
+        from(rootProject.file("${loaderName}/build/libs")) {
+            include '*.jar'
+            exclude '*-sources.jar', '*-javadoc.jar', '*-dev.jar'
+            into loaderName
+        }
+    }
+}
+
+subprojects { subproject ->
+    subproject.plugins.withType(org.gradle.api.plugins.JavaPlugin).configureEach {
+        subproject.extensions.configure(org.gradle.api.plugins.JavaPluginExtension) { JavaPluginExtension javaExtension ->
+            def javaVersion = JavaVersion.toVersion(erosionJavaVersion)
+            javaExtension.sourceCompatibility = javaVersion
+            javaExtension.targetCompatibility = javaVersion
+            javaExtension.toolchain.languageVersion.set(org.gradle.jvm.toolchain.JavaLanguageVersion.of(erosionJavaVersion))
+        }
+
+        subproject.tasks.withType(JavaCompile).configureEach { JavaCompile compileTask ->
+            compileTask.options.encoding = 'UTF-8'
+            compileTask.options.release.set(erosionJavaVersion)
+        }
+    }
+
+    subproject.plugins.withId('multiloader-loader') {
+        subproject.version = "${rootProject.mod_version}+${subproject.minecraft_version}"
+        subproject.group = rootProject.group
+
+        def loaderArchivePrefix = [
+                fabric  : 'Fabric',
+                neoforge: 'NeoForge'
+        ][subproject.name] ?: subproject.name.capitalize()
+
+        subproject.extensions.configure(org.gradle.api.plugins.BasePluginExtension) { BasePluginExtension baseExtension ->
+            baseExtension.archivesName = "${loaderArchivePrefix}-${rootProject.archives_base_name}"
+        }
+
+        subproject.repositories {
+            mavenCentral()
+            maven { name = 'Fabric'; url = uri('https://maven.fabricmc.net') }
+            maven { name = 'NeoForge'; url = uri('https://maven.neoforged.net/releases') }
+            maven { name = 'ParchmentMC'; url = uri('https://maven.parchmentmc.org') }
+        }
+    }
+
+    subproject.tasks.withType(Javadoc).configureEach { Javadoc javadocTask ->
+        javadocTask.options.addStringOption('Xdoclint:all,-missing', '-quiet')
+        javadocTask.failOnError = false
+    }
+}
